@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+browser_data/
+logs/screenshots/*
+logs/*.log
+logs/*.jsonl
+.pytest_cache/
+.venv/

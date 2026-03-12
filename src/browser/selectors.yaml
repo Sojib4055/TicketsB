@@ -1,0 +1,11 @@
+buy_button:
+  - button:has-text("Buy")
+  - button:has-text("Find Tickets")
+  - a:has-text("Buy Tickets")
+
+checkout_button:
+  - button:has-text("Checkout")
+  - button:has-text("Continue")
+
+quantity_dropdown:
+  - select[name="quantity"]
