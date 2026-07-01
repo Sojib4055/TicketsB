@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     max_tickets: int = 2
     max_total_usd: float = 200.0
 
+    mcp_server_url: str = "http://localhost:8931/mcp"
+    mcp_command_timeout_seconds: int = 30
+
     target_event_url: str = "https://example.com/events/sample"
     preferred_sections: str = "Lower Bowl,Floor"
     avoid_keywords: str = "resale,VIP,platinum,obstructed"

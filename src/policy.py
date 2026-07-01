@@ -11,6 +11,7 @@ class Offer:
     section: str
     quantity: int
     total_usd: float
+    available_seats: int | None = None
     source_text: str = ""
 
 

@@ -1,0 +1,17 @@
+[     912ms] [LOG] Checked for update. @ https://www.shohoz.com/main-IXTCESGK.js:0
+[     996ms] [LOG] Ecommerce data cleared @ :0
+[    1019ms] [LOG] Ecommerce data cleared @ :0
+[    1038ms] [LOG] Currency: undefined @ :0
+[    1039ms] [LOG] Value: undefined @ :0
+[    1039ms] [LOG] Journey type: ONE-WAY @ :0
+[    1039ms] [LOG] Destination: Bogura @ :0
+[    1040ms] [LOG] From: Dhaka @ :0
+[    1040ms] [LOG] Journey date: 02-Jul-2026 @ :0
+[    1040ms] [LOG] Price: undefined @ :0
+[    1876ms] [LOG] CleverTap [1782901213978]: CleverTap info: 545: Null value for key 'currency' was removed @ https://d2r1yp2w7bby2u.cloudfront.net/js/clevertap.min.js:14
+[    1877ms] [LOG] CleverTap [1782901213979]: CleverTap info: 545: Null value for key 'value' was removed @ https://d2r1yp2w7bby2u.cloudfront.net/js/clevertap.min.js:14
+[    1877ms] [LOG] CleverTap [1782901213979]: CleverTap info: 545: Null value for key 'price' was removed @ https://d2r1yp2w7bby2u.cloudfront.net/js/clevertap.min.js:14
+[    2183ms] [WARNING] [TikTok Pixel] - Missing value for content ID
+Issue: Include a value for your 'content_id' parameter. This is required for Video Shopping Ads (VSA).
+Suggestion: If you are or plan to run Video Shopping Ads (VSA), go to your source code and include a value for the 'content_id' parameter. See https://ads.tiktok.com/help/article/standard-events-parameters?redirected=2 for more information. @ https://analytics.tiktok.com/i18n/pixel/static/main.MTA1OGYzZDE5MQ.js:0
+[   13743ms] [LOG] Ecommerce data cleared @ :0

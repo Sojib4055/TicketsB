@@ -36,8 +36,10 @@ In your MCP host or compatible IDE, use the included `mcp_config.json`.
 
 If you want to run the server manually:
 ```bash
-npx @playwright/mcp@latest
+npx @playwright/mcp@latest --port 8931
 ```
+
+The app expects streamable HTTP transport and connects to `MCP_SERVER_URL`, which defaults to `http://localhost:8931/mcp`.
 
 ### 3) Run the app
 ```bash
