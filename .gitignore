@@ -3,7 +3,9 @@ __pycache__/
 *.pyc
 browser_data/
 logs/screenshots/*
+logs/reports/*
 logs/*.log
 logs/*.jsonl
 .pytest_cache/
 .venv/
+.playwright-mcp/

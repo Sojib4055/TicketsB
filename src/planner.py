@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from src.config import settings
 from src.state_machine import AgentState
 from src.monitoring.availability_parser import AvailabilityStatus
 
@@ -13,7 +14,11 @@ class PlanStep:
     next_state: AgentState
 
 
-def choose_next_step(status: AvailabilityStatus, current_state: AgentState) -> PlanStep:
+def choose_next_step(
+    status: AvailabilityStatus,
+    current_state: AgentState,
+    confirmed_snapshots: int = 1,
+) -> PlanStep:
     if status.state == "sold_out":
         return PlanStep(
             action="wait_and_recheck",
@@ -22,6 +27,26 @@ def choose_next_step(status: AvailabilityStatus, current_state: AgentState) -> P
         )
 
     if status.state == "available" and current_state == AgentState.MONITORING:
+        if status.confidence < settings.availability_confidence_threshold:
+            return PlanStep(
+                action="observe",
+                reason=(
+                    "Availability signal below confidence threshold "
+                    f"({status.confidence:.2f} < {settings.availability_confidence_threshold:.2f})"
+                ),
+                next_state=current_state,
+            )
+
+        if confirmed_snapshots < settings.availability_confirmation_snapshots:
+            return PlanStep(
+                action="observe",
+                reason=(
+                    "Waiting for confirming availability snapshot "
+                    f"({confirmed_snapshots}/{settings.availability_confirmation_snapshots})"
+                ),
+                next_state=current_state,
+            )
+
         return PlanStep(
             action="start_purchase_flow",
             reason="Availability detected",

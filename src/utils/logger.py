@@ -23,10 +23,10 @@ def get_logger(name: str) -> logging.Logger:
     file_handler = logging.FileHandler(LOG_PATH, encoding="utf-8")
     file_handler.setFormatter(formatter)
 
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-
     logger.addHandler(file_handler)
-    logger.addHandler(stream_handler)
+    if settings.console_logs:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(stream_handler)
     logger.propagate = False
     return logger

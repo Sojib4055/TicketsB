@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ticket Bot Dashboard</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">ticket-bot-mcp</p>
+          <h1 id="decisionTitle">Starting monitor</h1>
+        </div>
+        <div class="statusCluster">
+          <span id="statePill" class="pill">STARTING</span>
+          <span id="updatedAt" class="muted">Waiting for data</span>
+        </div>
+      </header>
+
+      <section class="summaryGrid">
+        <div class="metric">
+          <span>Offers Scanned</span>
+          <strong id="offersScanned">0</strong>
+        </div>
+        <div class="metric">
+          <span>Valid Offers</span>
+          <strong id="validOffers">0</strong>
+        </div>
+        <div class="metric">
+          <span>Blocked Offers</span>
+          <strong id="blockedOffers">0</strong>
+        </div>
+        <div class="metric">
+          <span>Best Fare</span>
+          <strong id="bestFare">-</strong>
+        </div>
+        <div class="metric">
+          <span>Price Cap</span>
+          <strong id="priceCap">-</strong>
+        </div>
+      </section>
+
+      <section class="insightGrid">
+        <section class="panel">
+          <h2>Target</h2>
+          <dl class="brief compact">
+            <dt>Route</dt><dd id="targetRoute">-</dd>
+            <dt>URL</dt><dd id="targetUrl">-</dd>
+            <dt>Belief</dt><dd id="beliefScore">-</dd>
+          </dl>
+        </section>
+
+        <section class="panel highlightPanel">
+          <h2>Best Offer</h2>
+          <div id="bestOfferCard" class="bestOfferCard">Waiting for ranked offers</div>
+        </section>
+
+        <section class="panel">
+          <h2>Signals</h2>
+          <div id="signalChips" class="chips"></div>
+          <p id="warningLine" class="warningLine">No parser warnings</p>
+        </section>
+      </section>
+
+      <section class="layout">
+        <section class="panel wide">
+          <div class="sectionHeader">
+            <h2>Top Ranked Offers</h2>
+            <span id="targetLabel" class="muted"></span>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Operator</th>
+                  <th>Route</th>
+                  <th>Time</th>
+                  <th>Seats</th>
+                  <th>Fare</th>
+                  <th>Score</th>
+                  <th>Policy</th>
+                </tr>
+              </thead>
+              <tbody id="offersTable">
+                <tr><td colspan="8" class="empty">Waiting for offers</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside class="panel">
+          <h2>Decision Brief</h2>
+          <dl class="brief">
+            <dt>Decision</dt><dd id="decisionKind">STARTING</dd>
+            <dt>Reason</dt><dd id="decisionMessage">Starting monitor</dd>
+            <dt>Status</dt><dd id="statusLine">starting</dd>
+            <dt>Confidence</dt><dd id="confidenceLine">0%</dd>
+            <dt>Handoff</dt><dd id="handoffLine">None</dd>
+          </dl>
+          <div class="policyBox">
+            <h3>Policy Details</h3>
+            <ul id="policyList" class="compactList">
+              <li>Waiting for policy evaluation</li>
+            </ul>
+          </div>
+        </aside>
+      </section>
+
+      <section class="panel screenshotPanel">
+        <div class="sectionHeader">
+          <div>
+            <h2>Screenshot Preview</h2>
+            <span id="screenshotMeta" class="muted">No screenshot captured yet</span>
+          </div>
+          <a id="screenshotLink" class="buttonLink disabled" href="#" target="_blank" rel="noreferrer">Open Full Resolution</a>
+        </div>
+        <div id="screenshotBox" class="screenshotBox">No screenshot yet</div>
+      </section>
+
+      <section class="layout twoCol">
+        <section class="panel">
+          <h2>Price And Seat Changes</h2>
+          <ul id="changesList" class="list">
+            <li>No previous report comparison yet</li>
+          </ul>
+        </section>
+
+        <section class="panel">
+          <h2>Run Files</h2>
+          <ul class="list">
+            <li><a href="/file/logs/reports/latest_offer_report.json" target="_blank" rel="noreferrer">Latest JSON report</a></li>
+            <li><a href="/file/logs/reports/latest_offer_report.txt" target="_blank" rel="noreferrer">Latest text report</a></li>
+          </ul>
+        </section>
+      </section>
+
+      <section class="panel">
+        <h2>Event Stream</h2>
+        <ol id="eventList" class="events"></ol>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

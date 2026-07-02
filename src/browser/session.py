@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from contextlib import AsyncExitStack
+from concurrent.futures import CancelledError as FutureCancelledError
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from contextlib import suppress
 from pathlib import Path
 import re
+import struct
 import threading
 import time
 from typing import Any
@@ -31,9 +34,10 @@ class BrowserSession:
         self.connected = False
         self.current_url: str | None = None
         self._available_tools: set[str] = set()
-        self._exit_stack: AsyncExitStack | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
+        self._owner_task: asyncio.Task[None] | None = None
+        self._shutdown_event: asyncio.Event | None = None
         self._session: Any = None
         self._snapshot_cache: dict[str, Any] = {"url": None, "text": "", "elements": [], "refs": []}
         self._selector_map = self._load_selector_map()
@@ -111,21 +115,39 @@ class BrowserSession:
         self._snapshot_cache = {"url": self.current_url, "text": "", "elements": [], "refs": []}
         logger.info("Typed into %s via selector fallback value length=%s", semantic_target, len(value))
 
-    def take_screenshot(self, name: str) -> Path:
+    def resize(self, width: int = 1440, height: int = 1000) -> None:
+        try:
+            self._call_tool("browser_resize", {"width": width, "height": height})
+            logger.info("Browser viewport resized to %sx%s", width, height)
+        except Exception as exc:  # pragma: no cover - depends on MCP server tool support
+            logger.warning("Browser viewport resize skipped: %s", exc)
+
+    def take_screenshot(
+        self,
+        name: str,
+        *,
+        full_page: bool = False,
+        width: int = 1440,
+        height: int = 1000,
+    ) -> Path:
         safe_name = re.sub(r"[^a-zA-Z0-9_.-]+", "_", name).strip("_") or "screenshot"
         path = Path("logs/screenshots") / f"{safe_name}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = self._call_tool("browser_take_screenshot", {"type": "png", "fullPage": True})
+        self.resize(width=width, height=height)
+
+        payload = self._call_tool("browser_take_screenshot", {"type": "png", "fullPage": full_page})
         image_bytes = self._extract_image_bytes(payload)
         if image_bytes:
             path.write_bytes(image_bytes)
+            self._warn_if_low_quality_screenshot(path, image_bytes)
             logger.info("Screenshot saved: %s", path)
             return path
 
         self._call_tool(
             "browser_take_screenshot",
-            {"filename": path.as_posix(), "type": "png", "fullPage": True},
+            {"filename": path.as_posix(), "type": "png", "fullPage": full_page},
         )
+        self._warn_if_low_quality_screenshot(path, path.read_bytes() if path.exists() else b"")
         logger.info("Screenshot requested from MCP server: %s", path)
         return path
 
@@ -133,7 +155,7 @@ class BrowserSession:
         if self._loop is None:
             return
 
-        if self._exit_stack is not None:
+        if self._owner_task is not None:
             try:
                 self._run_async(self._disconnect_async())
             except Exception as exc:  # pragma: no cover - cleanup best effort
@@ -143,7 +165,11 @@ class BrowserSession:
             self._loop.call_soon_threadsafe(self._loop.stop)
         if self._loop_thread is not None:
             self._loop_thread.join(timeout=2)
-        self._loop.close()
+
+        if self._loop.is_running():
+            logger.warning("Async event loop did not stop before close; leaving daemon thread to exit.")
+        else:
+            self._loop.close()
 
         self.connected = False
         self._loop = None
@@ -159,25 +185,53 @@ class BrowserSession:
         if self._session is not None:
             return
 
-        client_session_cls, streamable_http_client = self._load_mcp_client()
-        exit_stack = AsyncExitStack()
+        ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._shutdown_event = asyncio.Event()
+        self._owner_task = asyncio.create_task(self._session_owner(ready, self._shutdown_event))
         try:
-            read_stream, write_stream, _ = await exit_stack.enter_async_context(
-                streamable_http_client(settings.mcp_server_url)
-            )
-            session = await exit_stack.enter_async_context(client_session_cls(read_stream, write_stream))
-            await session.initialize()
-            self._available_tools = await self._list_tools(session)
-            self._session = session
-            self._exit_stack = exit_stack
-        except Exception:
-            await exit_stack.aclose()
+            await ready
+        except BaseException:
+            self._shutdown_event.set()
+            if self._owner_task is not None:
+                self._owner_task.cancel()
+                with suppress(Exception, asyncio.CancelledError):
+                    await self._owner_task
+            self._owner_task = None
+            self._shutdown_event = None
+            self._session = None
+            self._available_tools.clear()
             raise
 
+    async def _session_owner(
+        self,
+        ready: asyncio.Future[None],
+        shutdown_event: asyncio.Event,
+    ) -> None:
+        client_session_cls, streamable_http_client = self._load_mcp_client()
+        try:
+            async with streamable_http_client(settings.mcp_server_url) as (read_stream, write_stream, _):
+                async with client_session_cls(read_stream, write_stream) as session:
+                    await session.initialize()
+                    self._available_tools = await self._list_tools(session)
+                    self._session = session
+                    if not ready.done():
+                        ready.set_result(None)
+                    await shutdown_event.wait()
+        except Exception:
+            if not ready.done():
+                ready.set_exception(RuntimeError(f"Unable to initialize MCP browser session at {settings.mcp_server_url}"))
+            raise
+        finally:
+            self._session = None
+            self._available_tools.clear()
+
     async def _disconnect_async(self) -> None:
-        if self._exit_stack is not None:
-            await self._exit_stack.aclose()
-        self._exit_stack = None
+        if self._shutdown_event is not None:
+            self._shutdown_event.set()
+        if self._owner_task is not None:
+            await self._owner_task
+        self._owner_task = None
+        self._shutdown_event = None
         self._session = None
         self._available_tools.clear()
         self._snapshot_cache = {"url": self.current_url, "text": "", "elements": [], "refs": []}
@@ -246,7 +300,13 @@ class BrowserSession:
             raise RuntimeError("Async event loop has not been initialized.")
 
         future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
-        return future.result(timeout=settings.mcp_command_timeout_seconds)
+        try:
+            return future.result(timeout=settings.mcp_command_timeout_seconds)
+        except FutureTimeoutError:
+            future.cancel()
+            with suppress(FutureCancelledError, FutureTimeoutError):
+                future.result(timeout=2)
+            raise
 
     @staticmethod
     def _load_mcp_client() -> tuple[Any, Any]:
@@ -384,6 +444,29 @@ async (page) => {{
             except Exception:
                 continue
         return None
+
+    def _warn_if_low_quality_screenshot(self, path: Path, image_bytes: bytes) -> None:
+        dimensions = self._png_dimensions(image_bytes)
+        if dimensions is None:
+            return
+
+        width, height = dimensions
+        if width < 600 or height < 400:
+            logger.warning(
+                "Screenshot %s has small dimensions %sx%s; dashboard preview may be limited.",
+                path,
+                width,
+                height,
+            )
+
+    @staticmethod
+    def _png_dimensions(image_bytes: bytes) -> tuple[int, int] | None:
+        if len(image_bytes) < 24 or not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            return None
+        try:
+            return struct.unpack(">II", image_bytes[16:24])
+        except struct.error:
+            return None
 
     def _coerce_payload(self, result: Any) -> dict[str, Any]:
         payload: dict[str, Any] = {}
