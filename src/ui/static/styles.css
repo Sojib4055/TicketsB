@@ -158,6 +158,87 @@ h2 {
   padding: 16px;
 }
 
+.tripPanel {
+  margin-bottom: 14px;
+}
+
+.tripForm {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.tripForm label {
+  display: block;
+}
+
+.tripForm label span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tripForm input,
+.tripForm select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+}
+
+.checkLabel {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding-top: 18px;
+}
+
+.checkLabel input {
+  width: 16px;
+  min-height: 16px;
+}
+
+.checkLabel span {
+  margin: 0 !important;
+  color: var(--ink) !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+}
+
+.buttonPrimary {
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: var(--blue);
+  color: white;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.buttonPrimary:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.linkButton {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--blue);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .sectionHeader {
   display: flex;
   align-items: flex-start;
@@ -420,6 +501,10 @@ th {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .tripForm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .bestOfferMeta {
     grid-template-columns: 1fr;
   }
@@ -435,6 +520,10 @@ th {
   }
 
   .summaryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .tripForm {
     grid-template-columns: 1fr;
   }
 }

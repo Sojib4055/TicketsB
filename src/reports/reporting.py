@@ -23,6 +23,8 @@ def build_initial_ui_state(dashboard_url: str) -> dict[str, Any]:
         "updated_at": utc_now_iso(),
         "state": "STARTING",
         "target": {},
+        "trip": None,
+        "trip_schedule": None,
         "status": {
             "state": "starting",
             "confidence": 0,
@@ -46,6 +48,7 @@ def build_initial_ui_state(dashboard_url: str) -> dict[str, Any]:
         "price_changes": [],
         "handoff": None,
         "screenshot_path": None,
+        "ticket_path": None,
         "events": [],
         "final": False,
     }
@@ -83,22 +86,40 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
 def _format_text_report(report: dict[str, Any]) -> str:
     decision = report.get("decision", {})
     summary = report.get("summary", {})
+    trip = report.get("trip") or {}
+    schedule = report.get("trip_schedule") or {}
     lines = [
         "Ticket Bot Offer Report",
         f"Updated: {report.get('updated_at')}",
         f"Decision: {decision.get('kind', 'UNKNOWN')}",
         f"Message: {decision.get('message', '')}",
-        "",
-        "Summary",
-        f"Offers scanned: {summary.get('offers_scanned', 0)}",
-        f"Valid offers: {summary.get('valid_offers', 0)}",
-        f"Blocked offers: {summary.get('blocked_offers', 0)}",
-        f"Best allowed fare: {summary.get('best_allowed_fare')} {summary.get('currency', '')}",
-        f"Lowest seen fare: {summary.get('lowest_seen_fare')} {summary.get('currency', '')}",
-        f"Price cap: {summary.get('max_total_price')} {summary.get('currency', '')}",
-        "",
-        "Top Offers",
     ]
+    if trip:
+        lines.extend(
+            [
+                "",
+                "Trip",
+                f"Route: {trip.get('from_city')} -> {trip.get('to_city')}",
+                f"Journey date: {trip.get('journey_date')}",
+                f"Preferred time: {trip.get('preferred_departure_start') or '-'} to {trip.get('preferred_departure_end') or '-'}",
+                f"Monitoring start: {schedule.get('monitoring_start_date', '-')}",
+                f"Seat preference: {trip.get('seat_preference') or 'Any'}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "Summary",
+            f"Offers scanned: {summary.get('offers_scanned', 0)}",
+            f"Valid offers: {summary.get('valid_offers', 0)}",
+            f"Blocked offers: {summary.get('blocked_offers', 0)}",
+            f"Best allowed fare: {summary.get('best_allowed_fare')} {summary.get('currency', '')}",
+            f"Lowest seen fare: {summary.get('lowest_seen_fare')} {summary.get('currency', '')}",
+            f"Price cap: {summary.get('max_total_price')} {summary.get('currency', '')}",
+            "",
+            "Top Offers",
+        ]
+    )
     for index, item in enumerate(report.get("top_offers", []), start=1):
         offer = item.get("offer", {})
         decision_item = item.get("decision", {})

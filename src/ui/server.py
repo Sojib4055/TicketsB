@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -10,6 +11,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from src.reports.reporting import LATEST_UI_STATE_PATH
+from src.trips import load_trip_request, save_trip_request, schedule_for_trip, trip_from_payload
 
 
 class DashboardServer:
@@ -81,12 +83,22 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/state":
             self._send_state()
             return
+        if path == "/api/trip":
+            self._send_trip()
+            return
         if path.startswith("/file/"):
             self._send_artifact(path.removeprefix("/file/"))
             return
         if path == "/":
             self.path = "/index.html"
         super().do_GET()
+
+    def do_POST(self) -> None:
+        path = urlparse(self.path).path
+        if path == "/api/trip":
+            self._save_trip()
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
 
     def end_headers(self) -> None:
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -104,6 +116,37 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload.encode("utf-8"))
 
+    def _send_trip(self) -> None:
+        trip = load_trip_request()
+        payload = {"trip": None, "schedule": None}
+        if trip is not None:
+            payload = {
+                "trip": asdict(trip),
+                "schedule": asdict(schedule_for_trip(trip)),
+            }
+        self._send_json(payload)
+
+    def _save_trip(self) -> None:
+        length = int(self.headers.get("Content-Length") or "0")
+        raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+        try:
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("Trip payload must be an object")
+            trip = save_trip_request(trip_from_payload(payload))
+            self._send_json({"ok": True, "trip": asdict(trip), "schedule": asdict(schedule_for_trip(trip))})
+        except Exception as exc:
+            self.send_response(HTTPStatus.BAD_REQUEST)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode("utf-8"))
+
+    def _send_json(self, payload: dict[str, Any]) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
     def _send_artifact(self, raw_path: str) -> None:
         relative = Path(unquote(raw_path))
         if relative.is_absolute() or ".." in relative.parts:
@@ -114,6 +157,7 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         allowed_roots = [
             Path.cwd() / "logs" / "screenshots",
             Path.cwd() / "logs" / "reports",
+            Path.cwd() / "logs" / "tickets",
         ]
         try:
             resolved = path.resolve()
@@ -141,4 +185,6 @@ def _content_type_for(path: Path) -> str:
         return "application/json; charset=utf-8"
     if path.suffix == ".txt":
         return "text/plain; charset=utf-8"
+    if path.suffix == ".pdf":
+        return "application/pdf"
     return "application/octet-stream"

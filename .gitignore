@@ -4,6 +4,8 @@ __pycache__/
 browser_data/
 logs/screenshots/*
 logs/reports/*
+logs/config/*
+logs/tickets/*
 logs/*.log
 logs/*.jsonl
 .pytest_cache/

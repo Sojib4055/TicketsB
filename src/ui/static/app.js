@@ -25,6 +25,11 @@ const bestOfferCard = document.getElementById("bestOfferCard");
 const signalChips = document.getElementById("signalChips");
 const warningLine = document.getElementById("warningLine");
 const policyList = document.getElementById("policyList");
+const tripForm = document.getElementById("tripForm");
+const saveTripButton = document.getElementById("saveTripButton");
+const tripScheduleLine = document.getElementById("tripScheduleLine");
+const printReportButton = document.getElementById("printReportButton");
+const ticketOutputLine = document.getElementById("ticketOutputLine");
 
 async function loadState() {
   try {
@@ -34,6 +39,41 @@ async function loadState() {
   } catch (error) {
     decisionTitle.textContent = "Dashboard waiting for monitor";
     statusLine.textContent = "UI server is running, state file not ready";
+  }
+}
+
+async function loadTrip() {
+  try {
+    const response = await fetch("/api/trip", { cache: "no-store" });
+    const payload = await response.json();
+    if (payload.trip) fillTripForm(payload.trip);
+    renderTripSchedule(payload.schedule);
+  } catch (error) {
+    tripScheduleLine.textContent = "Trip setup API is not ready yet.";
+  }
+}
+
+async function saveTrip(event) {
+  event.preventDefault();
+  saveTripButton.disabled = true;
+  saveTripButton.textContent = "Saving";
+  try {
+    const payload = tripFormPayload();
+    const response = await fetch("/api/trip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Unable to save trip");
+    fillTripForm(result.trip);
+    renderTripSchedule(result.schedule);
+    decisionTitle.textContent = "Trip saved. Restart monitor if it is already running.";
+  } catch (error) {
+    tripScheduleLine.textContent = `Save failed: ${error.message}`;
+  } finally {
+    saveTripButton.disabled = false;
+    saveTripButton.textContent = "Save Trip";
   }
 }
 
@@ -72,6 +112,21 @@ function render(state) {
   renderChanges(state.price_changes || []);
   renderScreenshot(state.screenshot_path);
   renderEvents(state.events || []);
+  renderTicketOutput(state);
+  if (state.trip) {
+    fillTripForm(state.trip);
+  }
+  if (state.trip_schedule) {
+    renderTripSchedule(state.trip_schedule);
+  }
+}
+
+function renderTicketOutput(state) {
+  if (state.ticket_path) {
+    ticketOutputLine.innerHTML = `<a href="/file/${encodeURI(state.ticket_path)}" target="_blank" rel="noreferrer">Open downloaded ticket</a>`;
+    return;
+  }
+  ticketOutputLine.textContent = "Ticket PDF will appear here only after a confirmed booking is available.";
 }
 
 function renderInsights(state) {
@@ -249,6 +304,61 @@ function routeLabel(target) {
   return target.route_or_event || target.label || "-";
 }
 
+function tripFormPayload() {
+  const data = new FormData(tripForm);
+  return {
+    from_city: String(data.get("from_city") || "").trim(),
+    to_city: String(data.get("to_city") || "").trim(),
+    journey_date: String(data.get("journey_date") || "").trim(),
+    preferred_departure_start: String(data.get("preferred_departure_start") || "").trim(),
+    preferred_departure_end: String(data.get("preferred_departure_end") || "").trim(),
+    max_total_price: Number(data.get("max_total_price") || 2000),
+    currency: "BDT",
+    seat_count: Number(data.get("seat_count") || 1),
+    preferred_operators: String(data.get("preferred_operators") || "").trim(),
+    avoid_operators: String(data.get("avoid_operators") || "").trim(),
+    avoid_night_buses: Boolean(data.get("avoid_night_buses")),
+    auto_purchase_requested: Boolean(data.get("auto_purchase_requested")),
+    monitor_days_before: Number(data.get("monitor_days_before") || 10),
+    seat_preference: String(data.get("seat_preference") || "").trim(),
+  };
+}
+
+function fillTripForm(trip) {
+  if (!trip) return;
+  setField("from_city", trip.from_city);
+  setField("to_city", trip.to_city);
+  setField("journey_date", trip.journey_date);
+  setField("preferred_departure_start", trip.preferred_departure_start);
+  setField("preferred_departure_end", trip.preferred_departure_end);
+  setField("max_total_price", trip.max_total_price);
+  setField("seat_count", trip.seat_count);
+  setField("preferred_operators", (trip.preferred_operators || []).join(", "));
+  setField("avoid_operators", (trip.avoid_operators || []).join(", "));
+  setField("monitor_days_before", trip.monitor_days_before);
+  setField("seat_preference", trip.seat_preference || "");
+  setChecked("avoid_night_buses", trip.avoid_night_buses);
+  setChecked("auto_purchase_requested", trip.auto_purchase_requested);
+}
+
+function renderTripSchedule(schedule) {
+  if (!schedule) {
+    tripScheduleLine.textContent = "Set route, date, time frame, and booking preferences.";
+    return;
+  }
+  tripScheduleLine.textContent = `${schedule.message} Monitoring starts ${schedule.monitoring_start_date}; journey date ${schedule.journey_date}.`;
+}
+
+function setField(name, value) {
+  const field = tripForm.elements.namedItem(name);
+  if (field && value !== undefined && value !== null) field.value = value;
+}
+
+function setChecked(name, value) {
+  const field = tripForm.elements.namedItem(name);
+  if (field) field.checked = Boolean(value);
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -259,4 +369,7 @@ function escapeHtml(value) {
 }
 
 loadState();
+loadTrip();
 setInterval(loadState, 1000);
+tripForm.addEventListener("submit", saveTrip);
+printReportButton.addEventListener("click", () => window.print());

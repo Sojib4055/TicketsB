@@ -13,7 +13,7 @@ from src.monitoring.availability_parser import parse_availability_text, parse_of
 from src.monitoring.extractors import RegexOfferExtractor, SemanticOfferExtractor
 from src.monitoring.scheduler import AdaptiveScheduler
 from src.monitoring.targets import load_monitor_targets
-from src.models import AvailabilityStatus, HandoffBrief, MonitorTarget, Offer, ParsedOffer, PolicyDecision
+from src.models import AvailabilityStatus, HandoffBrief, MonitorTarget, Offer, ParsedOffer, PolicyDecision, TripRequest
 from src.planner import choose_next_step
 from src.policy import rank_offers
 from src.reports.reporting import (
@@ -25,6 +25,13 @@ from src.reports.reporting import (
 from src.state_machine import AgentState, StateMachine
 from src.tools.human_handoff import request_human_handoff
 from src.tools.notifier import notify
+from src.trips import (
+    advance_monitoring_message,
+    apply_trip_to_settings,
+    load_trip_request,
+    monitor_target_for_trip,
+    schedule_for_trip,
+)
 from src.ui import DashboardServer
 from src.utils.audit import audit_event
 from src.utils.logger import get_logger
@@ -40,12 +47,6 @@ def main() -> None:
 
     sm = StateMachine()
     browser = BrowserSession()
-    targets = load_monitor_targets()
-    scheduler = AdaptiveScheduler(targets, history_events=load_audit_events())
-    regex_extractor = RegexOfferExtractor()
-    semantic_extractor = SemanticOfferExtractor()
-    current_url: str | None = None
-    availability_confirmations: dict[str, int] = {}
     ui_state = build_initial_ui_state(dashboard_url)
     ui_state["decision"] = {
         "kind": "STARTING",
@@ -54,7 +55,32 @@ def main() -> None:
     _append_ui_event(ui_state, "Monitor is starting")
     write_ui_state(ui_state)
 
+    trip = load_trip_request()
+    if trip is None and _should_wait_for_trip_setup():
+        trip = _wait_for_trip_setup(ui_state)
+
+    if trip is not None:
+        apply_trip_to_settings(trip)
+        targets = [monitor_target_for_trip(trip)]
+    else:
+        targets = load_monitor_targets()
+    scheduler = AdaptiveScheduler(targets, history_events=load_audit_events())
+    regex_extractor = RegexOfferExtractor()
+    semantic_extractor = SemanticOfferExtractor()
+    current_url: str | None = None
+    availability_confirmations: dict[str, int] = {}
+    if trip is not None:
+        ui_state["trip"] = asdict(trip)
+        ui_state["trip_schedule"] = asdict(schedule_for_trip(trip))
+    write_ui_state(ui_state)
+
     try:
+        if trip is not None:
+            trip = _wait_for_monitoring_window(ui_state, trip)
+            apply_trip_to_settings(trip)
+            targets = [monitor_target_for_trip(trip)]
+            scheduler = AdaptiveScheduler(targets, history_events=load_audit_events())
+
         browser.connect()
         browser.resize()
 
@@ -181,7 +207,7 @@ def main() -> None:
 
                     if not decision.allowed:
                         screenshot_path = browser.take_screenshot("blocked_offer", full_page=False).as_posix()
-                        notify(f"Offer blocked by policy: {decision.reason}. Found: {offer_summary}.")
+                        notify(_availability_notification(target, ranked, decision, blocked=True))
                         sm.transition(AgentState.ABORTED)
                         _publish_final_report(
                             ui_state=ui_state,
@@ -199,9 +225,7 @@ def main() -> None:
                         break
 
                     if settings.dry_run:
-                        notify(
-                            f"DRY RUN: seats available. {offer_summary}. No booking was placed."
-                        )
+                        notify(_availability_notification(target, ranked, decision, blocked=False))
                         screenshot_path = browser.take_screenshot("dry_run_offer", full_page=False).as_posix()
                         sm.transition(AgentState.PAYMENT_REVIEW)
                         handoff = HandoffBrief(
@@ -385,6 +409,75 @@ def _query_value(url: str, key: str) -> str | None:
     return values[0] if values else None
 
 
+def _should_wait_for_trip_setup() -> bool:
+    return settings.require_trip_setup or "example.com/events/sample" in settings.target_event_url
+
+
+def _wait_for_trip_setup(ui_state: dict[str, Any]) -> TripRequest:
+    announced = False
+    while True:
+        trip = load_trip_request()
+        if trip is not None:
+            ui_state["trip"] = asdict(trip)
+            ui_state["trip_schedule"] = asdict(schedule_for_trip(trip))
+            ui_state["decision"] = {
+                "kind": "TRIP_SAVED",
+                "message": f"Trip saved for {trip.from_city} -> {trip.to_city} on {trip.journey_date}",
+            }
+            _append_ui_event(ui_state, "Trip setup received")
+            write_ui_state(ui_state)
+            return trip
+
+        ui_state["state"] = "WAITING_FOR_TRIP_SETUP"
+        ui_state["decision"] = {
+            "kind": "WAITING_FOR_TRIP_SETUP",
+            "message": "Use the Trip Setup form to choose route, date, time frame, and price cap.",
+        }
+        ui_state["final"] = False
+        if not announced:
+            _append_ui_event(ui_state, "Waiting for trip setup from dashboard")
+            announced = True
+        write_ui_state(ui_state)
+        time.sleep(2)
+
+
+def _wait_for_monitoring_window(ui_state: dict[str, Any], trip: TripRequest) -> TripRequest:
+    notified = False
+    while True:
+        latest_trip = load_trip_request() or trip
+        schedule = schedule_for_trip(latest_trip)
+        ui_state["trip"] = asdict(latest_trip)
+        ui_state["trip_schedule"] = asdict(schedule)
+
+        if schedule.should_monitor:
+            if not notified:
+                message = advance_monitoring_message(latest_trip, schedule)
+                notify(message)
+                _append_ui_event(ui_state, message)
+                notified = True
+            ui_state["decision"] = {
+                "kind": "MONITORING_WINDOW_OPEN",
+                "message": schedule.message,
+            }
+            _append_ui_event(ui_state, schedule.message)
+            write_ui_state(ui_state)
+            return latest_trip
+
+        ui_state["state"] = "SCHEDULED"
+        ui_state["decision"] = {
+            "kind": "WAITING_FOR_MONITORING_WINDOW",
+            "message": schedule.message,
+        }
+        ui_state["final"] = False
+        if not notified:
+            message = advance_monitoring_message(latest_trip, schedule)
+            notify(message)
+            _append_ui_event(ui_state, message)
+            notified = True
+        write_ui_state(ui_state)
+        time.sleep(min(max(settings.poll_interval_seconds, 5), 300))
+
+
 def _publish_poll_state(
     ui_state: dict[str, Any],
     target: MonitorTarget,
@@ -460,6 +553,41 @@ def _summary(ranked: list[tuple[Offer, PolicyDecision]]) -> dict[str, Any]:
         "max_total_price": settings.effective_max_total_price,
         "currency": ranked[0][0].currency if ranked else settings.normalized_price_currency,
     }
+
+
+def _availability_notification(
+    target: MonitorTarget,
+    ranked: list[tuple[Offer, PolicyDecision]],
+    decision: PolicyDecision,
+    *,
+    blocked: bool,
+) -> str:
+    best = ranked[0][0]
+    route = target.label or target.route_or_event or target.url
+    headline = "Tickets found but blocked by policy" if blocked else "Tickets available and policy-approved"
+    lines = [
+        headline,
+        f"Target: {route}",
+        f"Best offer: {best.title}",
+        f"Route: {best.section}",
+        f"Departure: {best.departure_time or 'unknown'}",
+        f"Fare: {best.total_usd} {best.currency}",
+        f"Seats: {best.available_seats if best.available_seats is not None else 'unknown'}",
+        f"Score: {decision.score}/100",
+        f"Policy: {decision.reason}",
+        f"Expiry risk: {decision.expiry_risk}",
+    ]
+    alternatives = ranked[1:4]
+    if alternatives:
+        lines.append("Alternatives:")
+        for index, (offer, alt_decision) in enumerate(alternatives, start=2):
+            lines.append(
+                f"{index}. {offer.title} | {offer.departure_time or 'unknown'} | "
+                f"{offer.total_usd} {offer.currency} | score {alt_decision.score}"
+            )
+    if not blocked:
+        lines.append("Action: Dry run/review mode. No payment was submitted.")
+    return "\n".join(lines)
 
 
 def _status_dict(status: AvailabilityStatus) -> dict[str, Any]:

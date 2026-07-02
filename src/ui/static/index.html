@@ -42,6 +42,76 @@
         </div>
       </section>
 
+      <section class="panel tripPanel">
+        <div class="sectionHeader">
+          <div>
+            <h2>Trip Setup</h2>
+            <span id="tripScheduleLine" class="muted">Set route, date, time frame, and booking preferences.</span>
+          </div>
+          <button id="saveTripButton" class="buttonPrimary" type="submit" form="tripForm">Save Trip</button>
+        </div>
+        <form id="tripForm" class="tripForm">
+          <label>
+            <span>From</span>
+            <input name="from_city" value="Dhaka" required>
+          </label>
+          <label>
+            <span>To</span>
+            <input name="to_city" value="Bogura" required>
+          </label>
+          <label>
+            <span>Journey Date</span>
+            <input name="journey_date" type="date" required>
+          </label>
+          <label>
+            <span>Preferred Start</span>
+            <input name="preferred_departure_start" placeholder="12:00 PM">
+          </label>
+          <label>
+            <span>Preferred End</span>
+            <input name="preferred_departure_end" placeholder="06:00 PM">
+          </label>
+          <label>
+            <span>Max Price</span>
+            <input name="max_total_price" type="number" min="1" step="1" value="2000" required>
+          </label>
+          <label>
+            <span>Seats</span>
+            <input name="seat_count" type="number" min="1" max="4" value="1" required>
+          </label>
+          <label>
+            <span>Preferred Operators</span>
+            <input name="preferred_operators" placeholder="SHYAMOLI PARIBAHAN, Hanif Enterprise">
+          </label>
+          <label>
+            <span>Avoid Operators</span>
+            <input name="avoid_operators" placeholder="Operator name">
+          </label>
+          <label>
+            <span>Seat Preference</span>
+            <select name="seat_preference">
+              <option value="">Any</option>
+              <option value="window">Window</option>
+              <option value="aisle">Aisle</option>
+              <option value="front">Front</option>
+              <option value="middle">Middle</option>
+            </select>
+          </label>
+          <label>
+            <span>Monitor Days Before</span>
+            <input name="monitor_days_before" type="number" min="0" max="30" value="10">
+          </label>
+          <label class="checkLabel">
+            <input name="avoid_night_buses" type="checkbox">
+            <span>Avoid night buses</span>
+          </label>
+          <label class="checkLabel">
+            <input name="auto_purchase_requested" type="checkbox">
+            <span>Auto-reserve when safe; stop at payment/CAPTCHA/MFA</span>
+          </label>
+        </form>
+      </section>
+
       <section class="insightGrid">
         <section class="panel">
           <h2>Target</h2>
@@ -129,11 +199,13 @@
         </section>
 
         <section class="panel">
-          <h2>Run Files</h2>
+          <h2>Ticket / Report Output</h2>
           <ul class="list">
             <li><a href="/file/logs/reports/latest_offer_report.json" target="_blank" rel="noreferrer">Latest JSON report</a></li>
             <li><a href="/file/logs/reports/latest_offer_report.txt" target="_blank" rel="noreferrer">Latest text report</a></li>
+            <li><button id="printReportButton" class="linkButton" type="button">Print dashboard report</button></li>
           </ul>
+          <p id="ticketOutputLine" class="warningLine">Ticket PDF will appear here only after a confirmed booking is available.</p>
         </section>
       </section>
 

@@ -77,6 +77,36 @@ class MonitorTarget:
 
 
 @dataclass(slots=True)
+class TripRequest:
+    from_city: str
+    to_city: str
+    journey_date: str
+    preferred_departure_start: str = ""
+    preferred_departure_end: str = ""
+    max_total_price: float = 2000.0
+    currency: str = "BDT"
+    seat_count: int = 1
+    preferred_operators: list[str] = field(default_factory=list)
+    avoid_operators: list[str] = field(default_factory=list)
+    avoid_night_buses: bool = False
+    monitor_days_before: int = 10
+    seat_preference: str = ""
+    auto_purchase_requested: bool = False
+    created_at: str = ""
+
+
+@dataclass(slots=True)
+class TripSchedule:
+    journey_date: str
+    monitoring_start_date: str
+    today: str
+    days_until_journey: int
+    days_until_monitoring_start: int
+    should_monitor: bool
+    message: str
+
+
+@dataclass(slots=True)
 class HandoffBrief:
     reason: str
     target: str

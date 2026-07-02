@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     avoid_night_buses: bool = False
     target_origin: str | None = None
     target_destination: str | None = None
+    require_trip_setup: bool = False
 
     ui_enabled: bool = True
     ui_host: str = "127.0.0.1"
