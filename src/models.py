@@ -26,6 +26,9 @@ class ParsedOffer:
     arrival_time: str | None = None
     duration: str | None = None
     service_class: str | None = None
+    booking_url: str = ""
+    payment_url: str = ""
+    booking_ref: str = ""
     confidence: float = 0.0
     signals: list[str] = field(default_factory=list)
     source_text: str = ""
@@ -43,6 +46,9 @@ class Offer:
     arrival_time: str | None = None
     duration: str | None = None
     service_class: str | None = None
+    booking_url: str = ""
+    payment_url: str = ""
+    booking_ref: str = ""
     target_origin: str = ""
     target_destination: str = ""
     source_text: str = ""

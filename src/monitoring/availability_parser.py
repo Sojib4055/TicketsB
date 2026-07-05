@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 
 from src.models import AvailabilityStatus, ParsedOffer
+
+
+@dataclass(frozen=True)
+class SnapshotSegment:
+    text: str
+    ref: str = ""
 
 
 SECTION_HINTS = (
@@ -79,8 +86,9 @@ def parse_offer_text(text: str) -> ParsedOffer | None:
 
 
 def parse_offer_texts(text: str) -> list[ParsedOffer]:
-    segments = _extract_segments(text)
-    bus_offers = _parse_bus_offer_blocks(segments)
+    snapshot_segments = _extract_segments_with_refs(text)
+    segments = [segment.text for segment in snapshot_segments]
+    bus_offers = _parse_bus_offer_blocks(snapshot_segments)
     if bus_offers:
         return sorted(
             bus_offers,
@@ -116,14 +124,17 @@ def _parse_generic_offer_text(text: str, segments: list[str]) -> ParsedOffer | N
     )
 
 
-def _parse_bus_offer_blocks(segments: list[str]) -> list[ParsedOffer]:
+def _parse_bus_offer_blocks(segments: list[SnapshotSegment] | list[str]) -> list[ParsedOffer]:
+    normalized = [_coerce_segment(segment) for segment in segments]
     offers: list[ParsedOffer] = []
-    for index, segment in enumerate(segments):
-        if segment.lower() != "book ticket":
+    for index, segment in enumerate(normalized):
+        if segment.text.lower() != "book ticket":
             continue
 
-        before = segments[max(0, index - 30):index]
-        after = segments[index:index + 8]
+        before_segments = normalized[max(0, index - 30):index]
+        after_segments = normalized[index:index + 8]
+        before = [item.text for item in before_segments]
+        after = [item.text for item in after_segments]
         seats = _parse_available_seats("\n".join(after))
         if seats is None:
             seats = _parse_available_seats("\n".join(before[-8:]))
@@ -162,6 +173,7 @@ def _parse_bus_offer_blocks(segments: list[str]) -> list[ParsedOffer]:
                 arrival_time=arrival_time,
                 duration=duration,
                 service_class=service_class,
+                booking_ref=segment.ref,
                 confidence=0.96,
                 signals=signals,
                 source_text="\n".join([*before[-18:], *after])[:1000],
@@ -282,13 +294,28 @@ def _offer_confidence(signals: list[str]) -> float:
 
 
 def _extract_segments(text: str) -> list[str]:
-    segments: list[str] = []
+    return [segment.text for segment in _extract_segments_with_refs(text)]
+
+
+def _extract_segments_with_refs(text: str) -> list[SnapshotSegment]:
+    segments: list[SnapshotSegment] = []
     for line in text.splitlines():
         for segment in line.split("|"):
             cleaned = _clean_snapshot_segment(segment)
             if cleaned:
-                segments.append(cleaned)
+                segments.append(SnapshotSegment(cleaned, _extract_ref(segment)))
     return segments
+
+
+def _coerce_segment(segment: SnapshotSegment | str) -> SnapshotSegment:
+    if isinstance(segment, SnapshotSegment):
+        return segment
+    return SnapshotSegment(str(segment), "")
+
+
+def _extract_ref(segment: str) -> str:
+    match = re.search(r"\[ref=([^\]]+)\]", segment)
+    return match.group(1) if match else ""
 
 
 def _clean_snapshot_segment(segment: str) -> str:

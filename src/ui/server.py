@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from collections.abc import Callable
 from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -8,6 +9,8 @@ import json
 from pathlib import Path
 import threading
 from typing import Any
+
+OfferActionHandler = Callable[[dict[str, Any]], dict[str, Any]]
 from urllib.parse import unquote, urlparse
 
 from src.reports.reporting import LATEST_UI_STATE_PATH
@@ -26,6 +29,7 @@ class DashboardServer:
         self.port = port
         self.state_path = state_path
         self.static_dir = static_dir or Path(__file__).with_name("static")
+        self.offer_action_handler: OfferActionHandler | None = None
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -38,6 +42,7 @@ class DashboardServer:
             DashboardRequestHandler,
             static_dir=self.static_dir,
             state_path=self.state_path,
+            dashboard_server=self,
         )
         last_error: OSError | None = None
         for candidate_port in range(self.port, self.port + 20):
@@ -54,6 +59,9 @@ class DashboardServer:
         self._thread.start()
         return self.url
 
+    def set_offer_action_handler(self, handler: OfferActionHandler) -> None:
+        self.offer_action_handler = handler
+
     def stop(self) -> None:
         if self._server is None:
             return
@@ -69,10 +77,12 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         *args: Any,
         static_dir: Path,
         state_path: Path,
+        dashboard_server: DashboardServer,
         **kwargs: Any,
     ) -> None:
         self.static_dir = static_dir
         self.state_path = state_path
+        self.dashboard_server = dashboard_server
         super().__init__(*args, directory=static_dir.as_posix(), **kwargs)
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -97,6 +107,9 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/trip":
             self._save_trip()
+            return
+        if path == "/api/offers/open":
+            self._open_offer()
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -135,6 +148,26 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
                 raise ValueError("Trip payload must be an object")
             trip = save_trip_request(trip_from_payload(payload))
             self._send_json({"ok": True, "trip": asdict(trip), "schedule": asdict(schedule_for_trip(trip))})
+        except Exception as exc:
+            self.send_response(HTTPStatus.BAD_REQUEST)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode("utf-8"))
+
+    def _open_offer(self) -> None:
+        length = int(self.headers.get("Content-Length") or "0")
+        raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+        try:
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("Offer action payload must be an object")
+            if self.dashboard_server.offer_action_handler is None:
+                self.send_response(HTTPStatus.CONFLICT)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, "error": "Offer action handler is not ready"}).encode("utf-8"))
+                return
+            self._send_json(self.dashboard_server.offer_action_handler(payload))
         except Exception as exc:
             self.send_response(HTTPStatus.BAD_REQUEST)
             self.send_header("Content-Type", "application/json; charset=utf-8")

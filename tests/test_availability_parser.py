@@ -87,6 +87,7 @@ def test_parse_shohoz_snapshot_wrapper_does_not_accept_page_header_or_zero_fare(
     assert parsed.title == "Shalki Classic"
     assert parsed.total_usd == 750.0
     assert parsed.total_usd > 0
+    assert parsed.booking_ref == "e262"
 
 
 def test_parse_shohoz_snapshot_extracts_multiple_positive_offers():
@@ -120,3 +121,4 @@ def test_parse_shohoz_snapshot_extracts_multiple_positive_offers():
     assert all(offer.title != "### Page" for offer in offers)
     assert all(offer.total_usd > 0 for offer in offers)
     assert all((offer.available_seats or 0) > 0 for offer in offers)
+    assert {offer.title: offer.booking_ref for offer in offers} == {"Shalki Classic": "e262", "Manik Express": "e409"}

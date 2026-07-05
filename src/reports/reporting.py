@@ -45,6 +45,7 @@ def build_initial_ui_state(dashboard_url: str) -> dict[str, Any]:
             "currency": "PRICE",
         },
         "top_offers": [],
+        "offer_notification": None,
         "price_changes": [],
         "handoff": None,
         "screenshot_path": None,
@@ -123,11 +124,27 @@ def _format_text_report(report: dict[str, Any]) -> str:
     for index, item in enumerate(report.get("top_offers", []), start=1):
         offer = item.get("offer", {})
         decision_item = item.get("decision", {})
-        lines.append(
+        link = offer.get("payment_url") or offer.get("booking_url")
+        line = (
             f"{index}. {offer.get('title')} | {offer.get('section')} | "
             f"{offer.get('total_usd')} {offer.get('currency')} | "
             f"{offer.get('available_seats')} seats | score {decision_item.get('score')}"
         )
+        if link:
+            line += f" | link {link}"
+        lines.append(line)
+
+    notification = report.get("offer_notification") or {}
+    if notification:
+        best = notification.get("best_offer") or {}
+        lines.extend(["", "Website Notification", notification.get("title", "")])
+        if best.get("link_url"):
+            lines.append(f"Best offer link: {best.get('link_label', 'Open link')} - {best.get('link_url')}")
+        nearby = notification.get("nearby_offers") or []
+        if nearby:
+            lines.append("Nearby best-priced links:")
+            for item in nearby:
+                lines.append(f"- {item.get('operator')} | {item.get('fare')} {item.get('currency')} | {item.get('link_url')}")
 
     changes = report.get("price_changes") or []
     if changes:

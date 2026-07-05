@@ -19,6 +19,17 @@
         </div>
       </header>
 
+      <section id="offerNotification" class="offerNotification hidden" aria-live="polite">
+        <div class="offerNotificationHeader">
+          <div>
+            <p class="eyebrow">Website notification</p>
+            <h2>Best priced bus ticket links</h2>
+          </div>
+          <button id="dismissOfferNotification" class="notificationClose" type="button" aria-label="Dismiss offer notification">&times;</button>
+        </div>
+        <div id="offerNotificationBody"></div>
+      </section>
+
       <section class="summaryGrid">
         <div class="metric">
           <span>Offers Scanned</span>
@@ -152,10 +163,11 @@
                   <th>Fare</th>
                   <th>Score</th>
                   <th>Policy</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody id="offersTable">
-                <tr><td colspan="8" class="empty">Waiting for offers</td></tr>
+                <tr><td colspan="9" class="empty">Waiting for offers</td></tr>
               </tbody>
             </table>
           </div>

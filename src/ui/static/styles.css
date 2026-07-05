@@ -99,6 +99,97 @@ h2 {
   font-size: 13px;
 }
 
+.offerNotification {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  margin-bottom: 14px;
+  border: 1px solid #b8d4f0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ffffff 0%, #f1f7ff 100%);
+  box-shadow: 0 18px 45px rgba(20, 32, 44, 0.14);
+  padding: 16px;
+}
+
+.offerNotification.hidden {
+  display: none;
+}
+
+.offerNotificationHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.notificationClose {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.notificationBest {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.notificationFare {
+  white-space: nowrap;
+  color: var(--blue);
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.notificationMessage,
+.notificationNote {
+  margin: 10px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.notificationNote {
+  color: var(--amber);
+}
+
+.nearbyLinks {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.nearbyLinks h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nearbyLinkRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.nearbyLinkRow small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+}
+
 .summaryGrid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -328,6 +419,48 @@ th {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 14px;
+}
+
+.offerActionBlock {
+  margin-top: 14px;
+}
+
+.offerActionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.offerActionPrimary,
+.offerActionSmall {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: none;
+  font-weight: 800;
+}
+
+.offerActionPrimary {
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.offerActionSmall {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.offerActionPrimary:hover,
+.offerActionSmall:hover {
+  background: #174f87;
 }
 
 .miniMetric {

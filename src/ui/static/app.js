@@ -30,6 +30,11 @@ const saveTripButton = document.getElementById("saveTripButton");
 const tripScheduleLine = document.getElementById("tripScheduleLine");
 const printReportButton = document.getElementById("printReportButton");
 const ticketOutputLine = document.getElementById("ticketOutputLine");
+const offerNotification = document.getElementById("offerNotification");
+const offerNotificationBody = document.getElementById("offerNotificationBody");
+const dismissOfferNotification = document.getElementById("dismissOfferNotification");
+const OFFER_NOTIFICATION_DISMISS_KEY = "ticketBotDismissedOfferNotification";
+let currentOfferNotificationKey = "";
 
 async function loadState() {
   try {
@@ -77,6 +82,26 @@ async function saveTrip(event) {
   }
 }
 
+async function openOfferInBrowser(rank) {
+  if (!rank || Number.isNaN(rank)) return;
+  decisionTitle.textContent = `Opening offer rank ${rank} in browser`;
+  try {
+    const response = await fetch("/api/offers/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rank }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error || result.message || "Unable to open offer");
+    }
+    decisionTitle.textContent = result.message || "Offer opened in browser";
+    await loadState();
+  } catch (error) {
+    decisionTitle.textContent = `Offer action failed: ${error.message}`;
+  }
+}
+
 function render(state) {
   const decision = state.decision || {};
   const summary = state.summary || {};
@@ -113,6 +138,7 @@ function render(state) {
   renderScreenshot(state.screenshot_path);
   renderEvents(state.events || []);
   renderTicketOutput(state);
+  renderOfferNotification(state.offer_notification);
   if (state.trip) {
     fillTripForm(state.trip);
   }
@@ -121,11 +147,78 @@ function render(state) {
   }
 }
 
+function renderOfferNotification(notification) {
+  if (!offerNotification || !offerNotificationBody) return;
+  if (!notification || !notification.best_offer) {
+    offerNotification.classList.add("hidden");
+    currentOfferNotificationKey = "";
+    return;
+  }
+
+  const best = notification.best_offer || {};
+  const nearby = notification.nearby_offers || [];
+  const key = `${notification.title || ""}|${best.link_url || ""}|${best.fare || ""}`;
+  currentOfferNotificationKey = key;
+  if (sessionStorage.getItem(OFFER_NOTIFICATION_DISMISS_KEY) === key) {
+    offerNotification.classList.add("hidden");
+    return;
+  }
+
+  offerNotificationBody.innerHTML = `
+    <div class="notificationBest">
+      <div>
+        <strong>${escapeHtml(best.operator || "-")}</strong>
+        <p class="muted">${escapeHtml(best.route || "-")} · ${escapeHtml(best.departure_time || "time unknown")}${best.duration ? ` · ${escapeHtml(best.duration)}` : ""}</p>
+      </div>
+      <div class="notificationFare">${best.fare ?? "-"} ${escapeHtml(best.currency || "")}</div>
+    </div>
+    <p class="notificationMessage">${escapeHtml(notification.message || "")}</p>
+    <div class="offerActionRow">${offerActionMarkup(best, best.open_action_label || "Open seat selection", "offerActionPrimary")}</div>
+    ${best.direct_payment ? "" : `<p class="notificationNote">${escapeHtml(best.link_note || "")}</p>`}
+    ${nearby.length ? `
+      <div class="nearbyLinks">
+        <h3>Nearest best-priced links</h3>
+        ${nearby.map(renderNearbyNotificationOffer).join("")}
+      </div>
+    ` : ""}
+  `;
+  offerNotification.classList.remove("hidden");
+}
+
+function renderNearbyNotificationOffer(item) {
+  return `
+    <div class="nearbyLinkRow">
+      <span>
+        <strong>${escapeHtml(item.operator || "-")}</strong>
+        <small>${escapeHtml(item.departure_time || "time unknown")} · ${item.fare ?? "-"} ${escapeHtml(item.currency || "")}</small>
+      </span>
+      ${offerActionMarkup(item, item.open_action_label || "Open seat selection", "offerActionSmall")}
+    </div>
+  `;
+}
+
 function renderTicketOutput(state) {
   if (state.ticket_path) {
     ticketOutputLine.innerHTML = `<a href="/file/${encodeURI(state.ticket_path)}" target="_blank" rel="noreferrer">Open downloaded ticket</a>`;
     return;
   }
+
+  if (state.offer_action_result) {
+    const result = state.offer_action_result;
+    const screenshot = result.screenshot_path
+      ? ` · <a href="/file/${encodeURI(result.screenshot_path)}" target="_blank" rel="noreferrer">open action screenshot</a>`
+      : "";
+    const currentUrl = result.current_url ? ` · <a href="${escapeHtml(safeUrl(result.current_url))}" target="_blank" rel="noreferrer">current provider page</a>` : "";
+    ticketOutputLine.innerHTML = `Offer action: ${escapeHtml(result.message || result.error || "completed")}${currentUrl}${screenshot}`;
+    return;
+  }
+
+  const bestItem = (state.top_offers || [])[0];
+  if (bestItem?.offer) {
+    ticketOutputLine.innerHTML = `Best offer action: ${offerActionForRank(bestItem.offer, 1, "Open seat selection", "offerActionSmall")}`;
+    return;
+  }
+
   ticketOutputLine.textContent = "Ticket PDF will appear here only after a confirmed booking is available.";
 }
 
@@ -159,12 +252,13 @@ function renderInsights(state) {
       <div class="miniMetric"><span>Score</span><strong>${decision.score ?? 0}/100</strong></div>
     </div>
     <p class="muted">${escapeHtml(time)}${offer.duration ? ` · ${escapeHtml(offer.duration)}` : ""}</p>
+    <div class="offerActionBlock">${offerActionForRank(offer, 1, "Open seat selection", "offerActionPrimary")}</div>
   `;
 }
 
 function renderOffers(items) {
   if (!items.length) {
-    offersTable.innerHTML = `<tr><td colspan="8" class="empty">Waiting for offers</td></tr>`;
+    offersTable.innerHTML = `<tr><td colspan="9" class="empty">Waiting for offers</td></tr>`;
     return;
   }
 
@@ -185,6 +279,7 @@ function renderOffers(items) {
         <td>${offer.total_usd ?? "-"} ${escapeHtml(offer.currency || "")}</td>
         <td class="score">${decision.score ?? 0}</td>
         <td><span class="${policyClass}">${policyText}</span><br><span class="muted">${escapeHtml(decision.reason || "")}</span></td>
+        <td>${offerActionForRank(offer, index + 1, "Open seat selection", "offerActionSmall")}</td>
       </tr>
     `;
   }).join("");
@@ -359,6 +454,43 @@ function setChecked(name, value) {
   if (field) field.checked = Boolean(value);
 }
 
+function offerActionMarkup(item, label, className = "offerActionSmall") {
+  if (item.can_open_in_browser || item.booking_ref) {
+    return offerOpenButton(item.rank || 1, label || item.open_action_label || "Open seat selection", className);
+  }
+  if (item.link_url) return offerLink(item.link_url, item.link_label || label || "Open", className);
+  return `<span class="muted">No link</span>`;
+}
+
+function offerActionForRank(offer, rank, label, className = "offerActionSmall") {
+  const linkUrl = offer.payment_url || offer.booking_url;
+  if (offer.booking_ref || linkUrl) {
+    return offerOpenButton(rank, label || "Open seat selection", className);
+  }
+  return `<span class="muted">No booking link found</span>`;
+}
+
+function offerOpenButton(rank, label, className = "offerActionSmall") {
+  return `<button class="${className} offerOpenButton" type="button" data-offer-rank="${Number(rank) || 1}">${escapeHtml(label || "Open seat selection")}</button>`;
+}
+
+function offerLink(url, label, className = "offerActionSmall") {
+  const safe = safeUrl(url);
+  if (!safe) return `<span class="muted">No safe link</span>`;
+  return `<a class="${className}" href="${escapeHtml(safe)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`;
+}
+
+function safeUrl(value) {
+  if (!value) return "";
+  try {
+    const url = new URL(String(value), window.location.origin);
+    if (url.protocol === "http:" || url.protocol === "https:") return url.href;
+  } catch (error) {
+    return "";
+  }
+  return "";
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -373,3 +505,18 @@ loadTrip();
 setInterval(loadState, 1000);
 tripForm.addEventListener("submit", saveTrip);
 printReportButton.addEventListener("click", () => window.print());
+if (dismissOfferNotification) {
+  dismissOfferNotification.addEventListener("click", () => {
+    if (currentOfferNotificationKey) {
+      sessionStorage.setItem(OFFER_NOTIFICATION_DISMISS_KEY, currentOfferNotificationKey);
+    }
+    if (offerNotification) offerNotification.classList.add("hidden");
+  });
+}
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest(".offerOpenButton");
+  if (!button) return;
+  const rank = Number(button.dataset.offerRank || 1);
+  openOfferInBrowser(rank);
+});

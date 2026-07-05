@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import json
 import time
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -18,6 +19,7 @@ from src.planner import choose_next_step
 from src.policy import rank_offers
 from src.reports.reporting import (
     build_initial_ui_state,
+    LATEST_UI_STATE_PATH,
     load_latest_offer_report,
     write_offer_report,
     write_ui_state,
@@ -47,6 +49,8 @@ def main() -> None:
 
     sm = StateMachine()
     browser = BrowserSession()
+    if dashboard is not None:
+        dashboard.set_offer_action_handler(lambda payload: _open_ranked_offer(browser, payload))
     ui_state = build_initial_ui_state(dashboard_url)
     ui_state["decision"] = {
         "kind": "STARTING",
@@ -241,6 +245,9 @@ def main() -> None:
                             details={
                                 "top_offers": str(min(len(ranked), settings.top_offer_limit)),
                                 "best_score": str(decision.score),
+                                "booking_url": offer.booking_url or "unavailable",
+                                "payment_url": offer.payment_url or "unavailable",
+                                "link_note": "Use payment_url only when the provider exposes a direct payment page; otherwise open booking_url and choose the ranked bus manually.",
                             },
                         )
                         request_human_handoff(handoff)
@@ -325,12 +332,16 @@ def main() -> None:
         _append_ui_event(ui_state, f"Startup error: {exc}")
         write_ui_state(ui_state)
     finally:
-        browser.close()
+        if dashboard is None or not settings.ui_persist_after_run:
+            browser.close()
 
     if dashboard is not None:
         _append_ui_event(ui_state, f"Final state: {sm.state.value}")
         write_ui_state(ui_state)
-        _keep_dashboard_alive(dashboard)
+        try:
+            _keep_dashboard_alive(dashboard)
+        finally:
+            browser.close()
 
 
 def _extract_best_offer(
@@ -389,11 +400,24 @@ def _parsed_to_offer(
         arrival_time=parsed.arrival_time,
         duration=parsed.duration,
         service_class=parsed.service_class,
+        booking_url=_offer_booking_url(parsed, target),
+        payment_url=parsed.payment_url,
+        booking_ref=parsed.booking_ref,
         target_origin=origin or settings.effective_target_origin,
         target_destination=destination or settings.effective_target_destination,
         source_text=snapshot_text[:500],
         confidence=parsed.confidence,
     )
+
+
+def _offer_booking_url(parsed: ParsedOffer, target: MonitorTarget | None = None) -> str:
+    if parsed.booking_url:
+        return parsed.booking_url
+    if parsed.payment_url:
+        return parsed.payment_url
+    if target and target.url:
+        return target.url
+    return settings.target_event_url
 
 
 def _offer_key(parsed: ParsedOffer) -> tuple[str, str, int, float]:
@@ -518,6 +542,7 @@ def _publish_final_report(
         "decision": decision,
         "summary": _summary(ranked),
         "top_offers": top_items,
+        "offer_notification": _offer_notification(ranked),
         "price_changes": price_changes or [],
         "handoff": _handoff_dict(handoff),
         "screenshot_path": screenshot_path,
@@ -530,6 +555,57 @@ def _publish_final_report(
     ui_state.update(report)
 
 
+def _open_ranked_offer(browser: BrowserSession, payload: dict[str, Any]) -> dict[str, Any]:
+    rank = int(payload.get("rank") or 1)
+    state = _load_latest_ui_state()
+    top_offers = state.get("top_offers") or []
+    if rank < 1 or rank > len(top_offers):
+        return {"ok": False, "error": f"Offer rank {rank} is not available"}
+
+    offer = top_offers[rank - 1].get("offer") or {}
+    target = state.get("target") or {}
+    target_url = target.get("url") or offer.get("booking_url") or settings.target_event_url
+    try:
+        if target_url and (browser.current_url != target_url or not browser.connected):
+            browser.navigate(target_url)
+            browser.snapshot()
+        browser.click_bus_offer(offer)
+        time.sleep(2)
+        current_url = browser.current_page_url()
+        screenshot_path = browser.take_screenshot(f"offer_rank_{rank}_opened", full_page=False).as_posix()
+        result = {
+            "ok": True,
+            "rank": rank,
+            "operator": offer.get("title"),
+            "message": "Clicked the ranked bus BOOK TICKET button in the active browser session. Continue seat selection/passenger details there; the bot will not submit payment.",
+            "current_url": current_url,
+            "screenshot_path": screenshot_path,
+        }
+    except Exception as exc:
+        result = {
+            "ok": False,
+            "rank": rank,
+            "operator": offer.get("title"),
+            "error": str(exc),
+            "message": "Could not click the ranked BOOK TICKET button. Open the booking page and choose the listed operator manually.",
+        }
+
+    state["offer_action_result"] = result
+    _append_ui_event(state, result.get("message") or result.get("error") or "Offer action completed")
+    write_ui_state(state)
+    return result
+
+
+def _load_latest_ui_state() -> dict[str, Any]:
+    if not LATEST_UI_STATE_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(LATEST_UI_STATE_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _ranked_items(ranked: list[tuple[Offer, PolicyDecision]]) -> list[dict[str, Any]]:
     return [
         {
@@ -538,6 +614,69 @@ def _ranked_items(ranked: list[tuple[Offer, PolicyDecision]]) -> list[dict[str, 
         }
         for offer, decision in ranked
     ]
+
+
+def _offer_notification(ranked: list[tuple[Offer, PolicyDecision]]) -> dict[str, Any] | None:
+    allowed_items = [
+        (rank, offer, decision)
+        for rank, (offer, decision) in enumerate(ranked, start=1)
+        if decision.allowed
+    ]
+    if not allowed_items:
+        return None
+
+    best_rank, best_offer, best_decision = allowed_items[0]
+    nearby_items = sorted(
+        allowed_items[1:],
+        key=lambda item: (
+            abs(item[1].total_usd - best_offer.total_usd),
+            item[1].total_usd,
+            -item[2].score,
+            item[1].departure_time or "",
+        ),
+    )[:3]
+
+    return {
+        "channel": "website",
+        "title": f"Best offer allowed: {best_offer.title} at {best_offer.total_usd} {best_offer.currency}",
+        "message": "Use Open seat selection to click the ranked bus in the active browser. Nearby best-priced options are included below.",
+        "best_offer": _offer_link_payload(best_rank, best_offer, best_decision),
+        "nearby_offers": [
+            _offer_link_payload(rank, offer, decision)
+            for rank, offer, decision in nearby_items
+        ],
+    }
+
+
+def _offer_link_payload(rank: int, offer: Offer, decision: PolicyDecision) -> dict[str, Any]:
+    link_url = offer.payment_url or offer.booking_url
+    is_payment = bool(offer.payment_url)
+    return {
+        "rank": rank,
+        "operator": offer.title,
+        "route": offer.section,
+        "fare": offer.total_usd,
+        "currency": offer.currency,
+        "available_seats": offer.available_seats,
+        "departure_time": offer.departure_time,
+        "arrival_time": offer.arrival_time,
+        "duration": offer.duration,
+        "service_class": offer.service_class,
+        "score": decision.score,
+        "policy_reason": decision.reason,
+        "link_url": link_url,
+        "link_label": "Go to payment" if is_payment else "Open booking/search page",
+        "booking_ref": offer.booking_ref,
+        "open_action_label": "Open seat selection",
+        "can_open_in_browser": bool(offer.booking_ref or link_url),
+        "link_type": "payment" if is_payment else "booking",
+        "direct_payment": is_payment,
+        "link_note": (
+            "Direct provider payment URL"
+            if is_payment
+            else "Provider snapshot did not expose a direct payment URL; the dashboard action clicks the ranked BOOK TICKET button first."
+        ),
+    }
 
 
 def _summary(ranked: list[tuple[Offer, PolicyDecision]]) -> dict[str, Any]:
@@ -577,13 +716,18 @@ def _availability_notification(
         f"Policy: {decision.reason}",
         f"Expiry risk: {decision.expiry_risk}",
     ]
+    if best.payment_url:
+        lines.append(f"Payment link: {best.payment_url}")
+    elif best.booking_url:
+        lines.append(f"Booking link: {best.booking_url}")
     alternatives = ranked[1:4]
     if alternatives:
         lines.append("Alternatives:")
         for index, (offer, alt_decision) in enumerate(alternatives, start=2):
             lines.append(
                 f"{index}. {offer.title} | {offer.departure_time or 'unknown'} | "
-                f"{offer.total_usd} {offer.currency} | score {alt_decision.score}"
+                f"{offer.total_usd} {offer.currency} | score {alt_decision.score} | "
+                f"link {offer.payment_url or offer.booking_url or 'unavailable'}"
             )
     if not blocked:
         lines.append("Action: Dry run/review mode. No payment was submitted.")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 from concurrent.futures import CancelledError as FutureCancelledError
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import suppress
@@ -150,6 +151,64 @@ class BrowserSession:
         self._warn_if_low_quality_screenshot(path, path.read_bytes() if path.exists() else b"")
         logger.info("Screenshot requested from MCP server: %s", path)
         return path
+
+
+    def click_bus_offer(self, offer: dict[str, Any]) -> None:
+        """Click the Book Ticket control that matches a ranked Shohoz bus offer."""
+        booking_ref = str(offer.get("booking_ref") or "").strip()
+        if booking_ref:
+            try:
+                self.click(booking_ref)
+                return
+            except Exception as exc:
+                logger.warning("Saved booking ref %s was not clickable; falling back to offer text match: %s", booking_ref, exc)
+
+        target = {
+            "operator": str(offer.get("title") or "").lower(),
+            "departure": str(offer.get("departure_time") or "").lower(),
+            "fare": str(offer.get("total_usd") or "").replace(".0", ""),
+        }
+        script = f"""
+async (page) => {{
+  const target = {json.dumps(target)};
+  const buttons = page.locator('button, a').filter({{ hasText: /book\s*ticket/i }});
+  const count = await buttons.count();
+  for (let i = 0; i < count; i++) {{
+    const button = buttons.nth(i);
+    const matched = await button.evaluate((el, target) => {{
+      let node = el;
+      for (let depth = 0; node && depth < 9; depth++, node = node.parentElement) {{
+        const text = (node.innerText || '').toLowerCase();
+        const operatorOk = !target.operator || text.includes(target.operator);
+        const departureOk = !target.departure || text.includes(target.departure);
+        const fareOk = !target.fare || text.includes(target.fare);
+        if (operatorOk && departureOk && fareOk) return true;
+      }}
+      return false;
+    }}, target);
+    if (matched) {{
+      await button.click();
+      return {{ clicked: true, index: i }};
+    }}
+  }}
+  throw new Error(`No matching Book Ticket button found for ${{target.operator}} ${{target.departure}} ${{target.fare}}`);
+}}
+""".strip()
+        self._call_tool("browser_run_code", {"code": script})
+        self._snapshot_cache = {"url": self.current_url, "text": "", "elements": [], "refs": []}
+
+    def current_page_url(self) -> str:
+        """Return the active page URL from the browser, if available."""
+        payload = self._call_tool("browser_run_code", {"code": "async (page) => page.url()"})
+        for key in ("text", "result"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().strip('"')
+        for item in payload.get("content", []):
+            value = item.get("text") if isinstance(item, dict) else None
+            if isinstance(value, str) and value.strip():
+                return value.strip().strip('"')
+        return self.current_url or ""
 
     def close(self) -> None:
         if self._loop is None:
