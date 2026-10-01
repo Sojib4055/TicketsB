@@ -13,7 +13,7 @@ def notify(message: str) -> None:
 
     if settings.discord_webhook_url:
         try:
-            httpx.post(settings.discord_webhook_url, json={"content": message}, timeout=10.0)
+            httpx.post(settings.discord_webhook_url, json={"content": message}, timeout=10.0).raise_for_status()
         except Exception as exc:
             logger.warning("Discord notification failed: %s", exc)
 
@@ -24,6 +24,6 @@ def notify(message: str) -> None:
                 url,
                 json={"chat_id": settings.telegram_chat_id, "text": message},
                 timeout=10.0,
-            )
+            ).raise_for_status()
         except Exception as exc:
             logger.warning("Telegram notification failed: %s", exc)

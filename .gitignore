@@ -11,3 +11,6 @@ logs/*.jsonl
 .pytest_cache/
 .venv/
 .playwright-mcp/
+data/
+frontend/node_modules/
+frontend/*.tsbuildinfo

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import math
 
 from src.config import settings
 from src.models import Offer, PolicyDecision
@@ -8,11 +9,17 @@ from src.models import Offer, PolicyDecision
 
 def evaluate_offer(offer: Offer) -> PolicyDecision:
     hard_blocks: list[str] = []
-    if offer.total_usd <= 0:
+    if not math.isfinite(offer.total_usd) or offer.total_usd <= 0:
         hard_blocks.append("Total cost must be greater than zero")
 
     if offer.quantity > settings.max_tickets:
         hard_blocks.append(f"Ticket quantity exceeds max_tickets={settings.max_tickets}")
+    if offer.quantity < 1:
+        hard_blocks.append("At least one ticket is required")
+    if offer.available_seats is not None and offer.available_seats < offer.quantity:
+        hard_blocks.append("Not enough seats for the requested quantity")
+    if offer.currency not in {"PRICE", settings.normalized_price_currency}:
+        hard_blocks.append("Offer currency does not match the configured budget")
 
     max_total_price = settings.effective_max_total_price
     currency = settings.normalized_price_currency

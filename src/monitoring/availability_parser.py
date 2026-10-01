@@ -35,7 +35,7 @@ def parse_availability_text(text: str) -> AvailabilityStatus:
         return AvailabilityStatus("mfa_required", text, 0.96, ["mfa_or_identity_check"])
 
     queue_signals = _matching_signals(lower, ("queue", "you are in line"))
-    sold_out_signals = _matching_signals(lower, ("sold out", "no tickets available"))
+    sold_out_signals = _matching_signals(lower, ("sold out", "no tickets available", "tickets unavailable", "no seats available"))
     available_signals = _matching_signals(
         lower,
         (
@@ -53,6 +53,9 @@ def parse_availability_text(text: str) -> AvailabilityStatus:
             for signal in available_signals
             if signal not in {"available", "tickets available"}
         ]
+    seat_counts = re.findall(r"(?i)\b(\d+)\s+seats?(?:\(s\))?\s+available\b", text)
+    if seat_counts and all(int(count) == 0 for count in seat_counts):
+        return AvailabilityStatus("sold_out", text, 0.95, ["zero_available_seats"])
 
     if queue_signals:
         return AvailabilityStatus("queue", text, 0.88, queue_signals)
@@ -94,6 +97,9 @@ def parse_offer_texts(text: str) -> list[ParsedOffer]:
             bus_offers,
             key=lambda offer: (offer.total_usd, -(offer.available_seats or 0)),
         )
+    if any(segment.text.lower() == "book ticket" for segment in snapshot_segments):
+        # A bus page with no valid cards must never become a guessed generic offer.
+        return []
 
     generic_offer = _parse_generic_offer_text(text, segments)
     return [generic_offer] if generic_offer is not None else []
@@ -127,11 +133,13 @@ def _parse_generic_offer_text(text: str, segments: list[str]) -> ParsedOffer | N
 def _parse_bus_offer_blocks(segments: list[SnapshotSegment] | list[str]) -> list[ParsedOffer]:
     normalized = [_coerce_segment(segment) for segment in segments]
     offers: list[ParsedOffer] = []
+    previous_button = -1
     for index, segment in enumerate(normalized):
         if segment.text.lower() != "book ticket":
             continue
 
-        before_segments = normalized[max(0, index - 30):index]
+        before_segments = normalized[max(previous_button + 1, index - 30):index]
+        previous_button = index
         after_segments = normalized[index:index + 8]
         before = [item.text for item in before_segments]
         after = [item.text for item in after_segments]
@@ -184,9 +192,9 @@ def _parse_bus_offer_blocks(segments: list[SnapshotSegment] | list[str]) -> list
 
 
 def _dedupe_offers(offers: list[ParsedOffer]) -> list[ParsedOffer]:
-    deduped: dict[tuple[str, str, float, int | None], ParsedOffer] = {}
+    deduped: dict[tuple, ParsedOffer] = {}
     for offer in offers:
-        key = (offer.title, offer.section, offer.total_usd, offer.available_seats)
+        key = (offer.title, offer.section, offer.total_usd, offer.departure_time, offer.arrival_time, offer.service_class)
         deduped.setdefault(key, offer)
     return list(deduped.values())
 
@@ -256,7 +264,7 @@ def _is_operator_title_candidate(segment: str) -> bool:
 
 
 def _matching_signals(lower_text: str, candidates: tuple[str, ...]) -> list[str]:
-    return [candidate for candidate in candidates if candidate in lower_text]
+    return [candidate for candidate in candidates if re.search(r"(?<!\w)" + re.escape(candidate) + r"(?!\w)", lower_text)]
 
 
 def _offer_signals(

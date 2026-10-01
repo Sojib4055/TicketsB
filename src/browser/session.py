@@ -308,7 +308,13 @@ async (page) => {{
         for attempt in range(1, settings.max_retries + 1):
             try:
                 payload = self._run_async(self._call_tool_async(tool_name, arguments))
-                return self._coerce_payload(payload)
+                result = self._coerce_payload(payload)
+                if result.get("isError") or getattr(payload, "isError", False):
+                    # Do not retry a potentially successful click after an ambiguous response.
+                    raise BrowserToolError(f"MCP tool reported an error: {tool_name}")
+                return result
+            except BrowserToolError:
+                raise
             except Exception as exc:  # pragma: no cover - exercised in integration
                 last_error = exc
                 logger.warning(
@@ -563,3 +569,7 @@ async (page) => {{
     @staticmethod
     def _normalize(value: str) -> str:
         return " ".join(value.lower().split())
+
+
+class BrowserToolError(RuntimeError):
+    """An MCP tool returned a failure result rather than raising a transport error."""
