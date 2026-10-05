@@ -29,6 +29,7 @@ import {
   dateOffset,
   minutes,
   money,
+  shohozBusUrl,
   today,
   when,
 } from "../lib/api";
@@ -292,6 +293,18 @@ export default function SearchPage() {
         </span>
       </div>
       <ErrorBox error={search.error} />
+      {search.isError && search.variables && (
+        <p>
+          <a
+            className="button secondary"
+            href={shohozBusUrl(search.variables)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Continue this search on Shohoz <ArrowUpRight size={16} />
+          </a>
+        </p>
+      )}
       {app.config?.mode === "demo" && (
         <div className="mode-banner">
           <span className="mode-icon">
@@ -706,6 +719,11 @@ function BusCard({
   onWatch: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const seatIssue =
+    o.provider_note ||
+    (o.seats_available < query.seat_count
+      ? `Only ${o.seats_available} seats listed; you requested ${query.seat_count}.`
+      : "");
   return (
     <article className="bus-card panel">
       <div className="bus-card-main">
@@ -756,16 +774,28 @@ function BusCard({
           <button className="button secondary small" onClick={onWatch}>
             <Bell size={14} /> Watch bus
           </button>
-          <button
-            className="button primary small"
-            onClick={onSeats}
-            disabled={o.seats_available < query.seat_count || !!o.provider_note}
-          >
-            Select seats <ArrowRight size={14} />
-          </button>
+          {seatIssue ? (
+            <a
+              className="button primary small"
+              href={shohozBusUrl(query)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Continue on Shohoz <ArrowUpRight size={14} />
+            </a>
+          ) : (
+            <button className="button primary small" onClick={onSeats}>
+              Select seats <ArrowRight size={14} />
+            </button>
+          )}
         </div>
       </div>
-      {o.provider_note && <p className="provider-note">{o.provider_note}</p>}
+      {seatIssue && (
+        <p className="provider-note">
+          <span>{seatIssue}</span> Continue to the route on Shohoz to review
+          this departure or alternatives.
+        </p>
+      )}
       {expanded && (
         <div className="route-details">
           <div>
@@ -820,18 +850,7 @@ function Seats({
       }, []);
   const xs = groups(map.data?.seats.map((s) => s.x) || []),
     ys = groups(map.data?.seats.map((s) => s.y) || []);
-  const providerDate = dateLabel(
-    result.query.journey_date + "T12:00:00+06:00",
-    { year: "numeric" },
-  ).replaceAll(" ", "-");
-  const url =
-    "https://www.shohoz.com/bus-tickets/booking/bus/search?" +
-    new URLSearchParams({
-      fromcity: result.query.from_city,
-      tocity: result.query.to_city,
-      doj: providerDate,
-      dor: "",
-    });
+  const url = shohozBusUrl(result.query);
   function proceed(seats: string[]) {
     onClose();
     app.plan({
@@ -865,7 +884,9 @@ function Seats({
           <ErrorBox error={map.error} />
           <p>
             You can still save this departure and watch its available seat count
-            here.
+            here. Your Shohoz sign-in stays in your own browser; it is not
+            shared with SeatWatch. Open the route there to choose your departure
+            and seats.
           </p>
           <div className="button-row">
             <a

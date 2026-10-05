@@ -4,11 +4,13 @@ python scripts/react_smoke.py
 Starts an isolated server on 8769 and deletes its temporary database afterwards.
 """
 import asyncio
+from datetime import datetime
 import os
 from pathlib import Path
 import secrets
 import sys
 import tempfile
+from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import uvicorn
@@ -24,6 +26,8 @@ class FixtureProvider:
         pass
 
     async def search(self, request):
+        if request.to_city == 'Unavailable':
+            raise RuntimeError('Fixture provider is unavailable')
         return [BusOffer(id='fixture-trip', operator='Test Express', route='Dhaka - Bogura',
                          departure='09:00 AM', arrival='03:00 PM', unit_fare='1200',
                          seats_available=8, service_class='AC', duration='6h 0m',
@@ -31,7 +35,11 @@ class FixtureProvider:
                 BusOffer(id='fixture-second', operator='Other Bus', route='Dhaka - Bogura',
                          departure='09:00 PM', arrival='03:00 AM', unit_fare='650',
                          seats_available=3, service_class='Non AC', duration='6h 0m',
-                         boarding_points=['Kalyanpur'])]
+                         boarding_points=['Kalyanpur']),
+                BusOffer(id='fixture-notice', operator='Notice Bus', route='Dhaka - Bogura',
+                         departure='10:00 PM', arrival='04:00 AM', unit_fare='750',
+                         seats_available=10, service_class='Non AC', duration='6h 0m',
+                         provider_note='Dear traveler, check the boarding details on Shohoz.')]
 
     async def seat_map(self, offer_id):
         if offer_id == 'fixture-second':
@@ -68,16 +76,56 @@ async def main():
                 page.on('pageerror',lambda e:errors.append(str(e)))
                 await page.goto('http://127.0.0.1:8769')
                 await page.get_by_role('heading',name='Where are we headed?').wait_for()
+                assert await page.get_by_role('link',name='Book tickets',exact=True).count()==1, 'Missing transport booking entry point'
+                await page.get_by_role('link',name='Book tickets',exact=True).click()
+                await page.get_by_role('heading',name='Every way to get there.').wait_for()
+                for label, url in (
+                    ('Bus', 'https://www.shohoz.com/bus-tickets'),
+                    ('Train', 'https://train.shohoz.com/'),
+                    ('Flights', 'https://www.shohoz.com/air-tickets'),
+                    ('Launch', 'https://www.shohoz.com/launch-tickets/'),
+                ):
+                    link=page.get_by_role('link',name=f'Book {label.lower()} on Shohoz',exact=True)
+                    assert await link.get_attribute('href')==url
+                    assert await link.get_attribute('target')=='_blank'
+                await page.screenshot(path=str(output/'tickets.png'),full_page=True,animations='disabled')
+                for width in (320,390,768):
+                    await page.set_viewport_size({'width':width,'height':844})
+                    assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'Tickets overflow {width}'
+                await page.screenshot(path=str(output/'tickets-tablet.png'),full_page=True,animations='disabled')
+                await page.set_viewport_size({'width':1440,'height':1120})
+                await page.get_by_role('link',name='Explore buses',exact=True).click()
                 await page.screenshot(path=str(output/'desktop.png'),full_page=True,animations='disabled')
                 await page.get_by_role('button',name='Switch to dark theme').click()
                 await page.screenshot(path=str(output/'dark.png'),full_page=True,animations='disabled')
+                await page.get_by_role('link',name='Book tickets',exact=True).click()
+                await page.get_by_role('heading',name='Every way to get there.').wait_for()
+                await page.screenshot(path=str(output/'tickets-dark.png'),full_page=True,animations='disabled')
+                await page.get_by_role('link',name='Explore buses',exact=True).click()
                 await page.reload()
                 assert await page.locator('html').get_attribute('data-theme') == 'dark'
                 await page.get_by_role('button',name='Switch to light theme').click()
                 # Public search, filters, native seats and provider sign-in handling.
                 await page.get_by_role('button',name='Search buses',exact=True).click()
                 await page.locator('.bus-card').first.wait_for()
-                assert await page.locator('.bus-card').count()==2
+                assert await page.locator('.bus-card').count()==3
+                notice=page.locator('.bus-card').filter(has_text='Notice Bus')
+                assert await notice.get_by_role('button',name='Select seats',exact=False).count()==0
+                handoff=notice.get_by_role('link',name='Continue on Shohoz',exact=False)
+                url=urlparse(await handoff.get_attribute('href'))
+                assert url.hostname=='www.shohoz.com'
+                params=parse_qs(url.query)
+                assert params['fromcity']==['Dhaka'] and params['tocity']==['Bogura']
+                journey_date=await page.get_by_label('Journey date',exact=True).input_value()
+                assert params['doj']==[datetime.strptime(journey_date, '%Y-%m-%d').strftime('%d-%b-%Y')]
+                await page.get_by_label('Number of seats',exact=True).select_option('4')
+                await page.get_by_role('button',name='Search buses',exact=True).click()
+                scarce=page.locator('.bus-card').filter(has_text='Other Bus')
+                await scarce.get_by_text('Only 3 seats listed; you requested 4.',exact=True).wait_for()
+                assert await scarce.get_by_role('link',name='Continue on Shohoz',exact=False).is_visible()
+                await page.get_by_label('Number of seats',exact=True).select_option('1')
+                await page.get_by_role('button',name='Search buses',exact=True).click()
+                await scarce.get_by_role('button',name='Select seats',exact=False).wait_for()
                 await page.get_by_label('Filter by operator').select_option('Test Express')
                 assert await page.locator('.bus-card').count()==1
                 await page.get_by_role('button',name='Select seats',exact=False).click()
@@ -173,9 +221,16 @@ async def main():
                 await page.get_by_role('dialog').get_by_role('button',name='Sign in',exact=True).click()
                 await page.get_by_role('dialog').wait_for(state='hidden')
                 assert (await (await page.request.get('http://127.0.0.1:8769/api/auth/me')).json())['user']['email'] == email
+                await page.goto('http://127.0.0.1:8769')
+                await page.get_by_label('Destination city',exact=True).fill('Unavailable')
+                await page.get_by_role('button',name='Search buses',exact=True).click()
+                fallback=page.get_by_role('link',name='Continue this search on Shohoz',exact=False)
+                await fallback.wait_for()
+                assert parse_qs(urlparse(await fallback.get_attribute('href')).query)['tocity']==['Unavailable']
+                assert await page.locator('.bus-card').count()==0
                 assert not errors,errors
                 await browser.close()
-                print('PASS: production React UI, themes, public search, filters, seat preferences, provider sign-in gate, signup, exact-departure watch, demo manual payment, notifications, pause/resume, recovery-code creation and password reset, logout/login, and 320/390/768px layout. No real reservations or messages.',flush=True)
+                print('PASS: transport booking handoffs, insufficient-seat/provider-notice/search-failure fallbacks, production React UI, themes, public search, filters, seat preferences, provider sign-in gate, signup, exact-departure watch, demo manual payment, notifications, pause/resume, recovery-code creation and password reset, logout/login, and 320/390/768px layout. No real reservations or messages.',flush=True)
                 print('Screenshots:',output,flush=True)
         finally:
             server.should_exit=True

@@ -53,6 +53,21 @@ export const dateLabel = (
     "en-GB",
     { timeZone: "Asia/Dhaka", day: "numeric", month: "short", ...options },
   );
+export const shohozBusUrl = (query: {
+  from_city: string;
+  to_city: string;
+  journey_date: string;
+}) =>
+  "https://www.shohoz.com/bus-tickets/booking/bus/search?" +
+  new URLSearchParams({
+    fromcity: query.from_city,
+    tocity: query.to_city,
+    doj: dateLabel(query.journey_date + "T12:00:00+06:00", {
+      day: "2-digit",
+      year: "numeric",
+    }).replaceAll(" ", "-"),
+    dor: "",
+  });
 export const when = (value: string | number) =>
   dateLabel(value, { hour: "2-digit", minute: "2-digit" });
 export function minutes(value: string) {

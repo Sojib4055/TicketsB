@@ -1,7 +1,7 @@
 # SeatWatch — Shohoz booking website
 
 The main website is now a **React + TypeScript** application with a responsive
-navy/indigo design, light and dark themes, locally hosted Inter typography,
+coral, olive, lavender-gray, and charcoal palette, light and dark themes, locally hosted Inter typography,
 accessible dialogs, and interactive search and booking screens. The Python
 service continues to own authentication, availability monitoring, booking state,
 manual provider sessions, and WhatsApp delivery.
@@ -26,6 +26,20 @@ date, then compare fares, AC/Non-AC buses, operators, departure times and boardi
 stops. Search results retain a provider session for up to five minutes; refresh
 the search if it expires. A supported Chrome/Chromium installation is required
 (see below); installed Google Chrome is detected automatically.
+
+**Book tickets** at `/#/tickets` opens the official bus, train, flight, and launch
+booking services in a new browser tab. This uses the customer's own provider
+account for seat selection, checkout, ticket retrieval, and any supported
+changes/cancellations. These are provider handoffs, not native integrations;
+externally purchased tickets do not automatically sync into **My journeys**.
+The current project has no partner API integration for these services. Native
+multi-category inventory, booking, and ticket management remain unimplemented.
+
+Bus listings with insufficient seats or a provider notice show an explanation
+and **Continue on Shohoz**, preserving the route and date, instead of a disabled
+seat button. The link opens a route search, not a specific departure or held seat.
+Failed searches also offer a provider handoff. Availability and final prices are
+always rechecked on the provider site.
 
 **Select seats** requests the provider's actual map. Shohoz currently requires
 sign-in for this endpoint, so anonymous users see an explanation and a link to

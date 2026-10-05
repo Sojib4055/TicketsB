@@ -33,7 +33,9 @@ import { AuthDialog, BookingDialog } from "./components/Booking";
 import SearchPage from "./pages/Search";
 const Journeys = lazy(() => import("./pages/Journeys"));
 const Updates = lazy(() => import("./pages/Updates"));
+const Tickets = lazy(() => import("./pages/Tickets"));
 const nav = [
+  { to: "/tickets", label: "Book tickets", icon: BusFront },
   { to: "/", label: "Explore buses", icon: Compass },
   { to: "/journeys", label: "My journeys", icon: Ticket },
   { to: "/alerts", label: "Notifications", icon: Bell },
@@ -288,6 +290,7 @@ export default function App() {
             }
           >
             <Routes>
+              <Route path="/tickets" element={<Tickets />} />
               <Route path="/" element={<SearchPage />} />
               <Route path="/journeys" element={<Journeys />} />
               <Route path="/alerts" element={<Updates />} />
